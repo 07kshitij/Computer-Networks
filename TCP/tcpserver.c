@@ -5,10 +5,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 
 int main(int argc, char const *argv[]){
 	
-	int sockFd, newsockFd, portNo, numChar;
+	int sockFd, newsockFd, portNo, numChar, n;
 	char buffer[2048];
 	socklen_t clilen;
 
@@ -28,7 +29,6 @@ int main(int argc, char const *argv[]){
 		perror("ERROR opening socket\n");
 		exit(1);
 	}
-
 	bzero((char *) &server_addr, sizeof(server_addr)); // sets the buffer to all 0's
 
 	portNo = atoi(argv[1]); // Port no. at which server is listening
@@ -41,31 +41,37 @@ int main(int argc, char const *argv[]){
 		perror("ERROR on Binding\n");
 		exit(1);
 	}
+	// binds the server address to the socket
 
 	listen(sockFd, 5); // 5 is the max no. of blocklisted (waiting) connections
 
-	clilen = sizeof(client_addr);
 
-	newsockFd = accept(sockFd, (struct sockaddr *) &client_addr, &clilen);
-
-	if(newsockFd < 0){
-		perror("ERROR on Accept\n");
-		exit(1);
+	while(1){
+		clilen = sizeof(client_addr);
+		newsockFd = accept(sockFd, (struct sockaddr *) &client_addr, &clilen);
+		if(newsockFd < 0){
+			perror("ERROR on Accept\n");
+			continue;
+		}
+		printf("New connection from %s:%d \n",inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+		while(1){
+			bzero(buffer, sizeof(buffer));
+			if((n = read(newsockFd, buffer, sizeof(buffer))) < 0){
+				perror("ERROR reading from socket\n");
+				break;				
+			}
+			if(n == 0){
+				close(newsockFd); break;
+			}
+			printf("\t>> ");
+			printf("Server recv : %s\n", buffer);
+			n = write(newsockFd, buffer, sizeof(buffer));
+			if(n < 0){
+				perror("ERROR writing to socket\n");
+				continue;
+			}		
+		}
 	}
-
-	bzero(buffer, sizeof(buffer));
-	int n = read(newsockFd, buffer, sizeof(buffer));
-	if(n < 0){
-		perror("ERROR reading from socket\n");
-		exit(1);
-	}
-	printf("Server recv : %s\n", buffer);
-	n = write(newsockFd, buffer, sizeof(buffer));
-	if(n < 0){
-		perror("ERROR writing to socket\n");
-		exit(1);
-	}
-	close(newsockFd);
 	close(sockFd);
 
 	return 0;
