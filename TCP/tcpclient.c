@@ -4,68 +4,106 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <netdb.h> 
 #include <unistd.h>
+#include <netdb.h> 
 #include <arpa/inet.h>
+#include <stdbool.h>
+#include <sys/stat.h>
+#include <fcntl.h>  
+
+const int N = 10 + 1;
+
+void error(char *message){
+	perror(message);
+	exit(0);
+}
 
 int main(int argc, char const *argv[]){
-	
-	struct sockaddr_in server_addr; // Same as server
-	struct hostent *server; // Defines a host on the computer, included in netdb.h
-	int sockFd, portNo, n;
-	char buffer[2048];
 
-	if(argc < 3){ // argv[1] has the hostname, argv[2] the portNo
-		fprintf(stderr, "Use %s <hostname> <port>\n", argv[0]);
-		exit(1);
+	int sockFd, portNo;
+	char buffer[N];
+	struct sockaddr_in server_addr, client_addr;
+
+	if(argc < 3){
+		error("[ERROR] Pls specify hostname and portNo");
 	}
+
 	portNo = atoi(argv[2]);
-	sockFd = socket(AF_INET, SOCK_STREAM, 0); // Create socket at client
+	sockFd = socket(AF_INET, SOCK_STREAM, 0);
 	if(sockFd < 0){
-		perror("ERROR Opening socket\n");
-		exit(1);
+		error("[ERROR] Can't open socket");
 	}
-	server = gethostbyname(argv[1]); // Returns pointer to a hostent with info about server
-	if(server == NULL){
-		perror("ERROR, no such host\n");
-		exit(1);
-	}
-	bzero((char *) &server_addr, sizeof(server_addr)); // same as server
+
+	bzero((char*)&server_addr, sizeof(server_addr));
 
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_port = htons(portNo);
-	bcopy((char *)server -> h_addr, (char *)&server_addr.sin_addr.s_addr, server -> h_length);
-	// similar to strcpy(char *s, char *t, strlen(s)), copies s to t\
-		here copies the address of server in server -> h_addr to server_addr field
+	server_addr.sin_addr.s_addr = INADDR_ANY;
 
-	if(connect(sockFd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0){
-		perror("ERROR connecting");
-		exit(1);
+	if(connect(sockFd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0){
+		error("[ERROR] Unable to connect to server");
 	}
-	// connect(fileDescriptor of socket (here client), address of host to connect , sizeof that address)
-	// client needs to know portno of server, but its own port no is assigned as per availability
-	char message[2408];
-	while(1){
-		printf("Enter Message >> ");
-		bzero(message, sizeof(message));
-		fgets(message, sizeof(message), stdin);
-		n = write(sockFd, message, strlen(message) + 1);
-		// write to server
-		if(n < 0){
-			perror("ERROR writing to socket\n");
-			exit(1);
-		}
-		bzero(buffer, sizeof(buffer));
-		n = read(sockFd, buffer, sizeof(buffer));
-		// read from server
-		if(n < 0){
-			perror("ERROR reading from socket\n");
-			exit(1);
-		}
-		printf("Reading from %s:%d >> ", inet_ntoa(server_addr.sin_addr), ntohs(server_addr.sin_port));
+
+	char fileName[N];
+	printf("Enter fileName : ");
+	scanf("%s", fileName);
+
+	send(sockFd, fileName, strlen(fileName) + 1, 0);
+	int fd = open("client.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	if(fd < 0){
+		error("[ERROR] Can't create file");
+	}
+
+	bzero(buffer, sizeof(buffer));
+	int words = 0, bytes = 0, m, cnt = 0;
+	int i, j;
+	bool delimiter = 0;
+
+	while((m = recv(sockFd, buffer, N, 0)) > 0){
+		cnt++;
 		printf("%s\n", buffer);
+		write(fd, buffer, strlen(buffer));
+		for(j = 0; j < m; j++){
+			bytes++;
+			if(buffer[j] == ','){
+				delimiter = 1;
+			}
+			else if(buffer[j] == ';'){
+				delimiter = 1;
+			}
+			else if(buffer[j] == ':'){
+				delimiter = 1;
+			}
+			else if(buffer[j] == '.'){
+				delimiter = 1;
+			}
+			else if(buffer[j] == ' '){
+				delimiter = 1;
+			}
+			else if(buffer[j] == '\t'){
+				delimiter = 1;
+			}
+			else{
+				if(delimiter){
+					words++; delimiter = 0;
+				}
+			}
+		}
+		if(delimiter)
+			words++;
+		bzero(buffer, sizeof(buffer));
 	}
-	close(sockFd);
 
+	if(cnt == 0 && m == 0){
+		remove("client.txt");
+		printf("FileNotFound\n");
+		close(sockFd);
+		close(fd);
+		exit(0);
+	}
+
+	printf("[SUCCESS] Received %d number of bytes and %d number of words\n",bytes, words);
+	close(sockFd);
+	close(fd);
 	return 0;
 }
